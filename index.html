@@ -305,38 +305,20 @@
     <div class="kpi" style="--kpi-color:var(--red)"><div class="lbl">Quarantined</div><div class="val" id="trKpiQuarantine">0</div><div class="sub">Not released for use</div></div>
   </div>
   <div class="filters" style="margin-bottom:12px;">
-    <div class="grp"><label>Scan QR / Search trolley</label><input type="text" id="trSearch" placeholder="Scan QR code or enter trolley ID…"></div>
+    <div class="grp"><label>Search trolley</label><input type="text" id="trSearch" placeholder="Enter trolley ID or QR…"></div>
     <div class="grp"><label>Filter status</label><select id="trStatusFilter"><option value="all">All statuses</option><option value="Valid">Valid</option><option value="Due Soon">Due soon</option><option value="Overdue">Overdue</option><option value="Quarantined">Quarantined</option></select></div>
     <button class="clearbtn" id="trExportBtn" style="border-color:var(--amber);color:var(--amber);">⬇ Export trolley log</button>
-    <button class="clearbtn" id="trAddBtn" style="border-color:var(--green);color:#6FE0AC;">＋ Register trolley</button>
-    <button class="clearbtn" id="trClearAllBtn" style="border-color:var(--red);color:var(--red);">Remove all trolleys</button>
-  </div>
-  <div id="trFormWrap" class="panel" style="display:none;margin-bottom:12px;background:var(--panel-2);">
-    <h3 id="trFormTitle">Register Mobile Trolley <span>Fields marked * are required</span></h3>
-    <form id="trForm">
-      <div style="display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px;">
-        <div class="grp"><label>Trolley ID *</label><input id="trId" type="text" required placeholder="e.g. P8-TROLLEY-001"></div>
-        <div class="grp"><label>Trolley name *</label><input id="trName" type="text" required placeholder="PWB transport trolley"></div>
-        <div class="grp"><label>Owner / PIC</label><input id="trOwner" type="text" placeholder="Responsible person"></div>
-        <div class="grp"><label>Department</label><input id="trDept" type="text" placeholder="SMT / Warehouse / Assembly"></div>
-        <div class="grp"><label>Current location *</label><input id="trLocation" type="text" required placeholder="Warehouse / SMT / Assembly"></div>
-        <div class="grp"><label>Inspection frequency</label><select id="trFrequency"><option value="Monthly">Monthly</option><option value="Quarterly" selected>Quarterly</option><option value="Half-yearly">Half-yearly</option><option value="Yearly">Yearly</option></select></div>
-        <div class="grp"><label>Last inspection date</label><input id="trChecked" type="date"></div>
-        <div class="grp"><label>Next due date</label><input id="trDue" type="date"></div>
-        <div class="grp"><label>Inspection outcome</label><select id="trOutcome"><option value="Not inspected">Not inspected</option><option value="Pass">Pass</option><option value="Fail">Fail</option></select></div>
-        <div class="grp"><label>Verifier</label><input id="trVerifier" type="text" placeholder="ESD Coordinator / verifier"></div>
-        <div class="grp"><label>Corrective action</label><input id="trAction" type="text" placeholder="Action / work order / remarks"></div>
-        <div class="grp"><label>Quarantine</label><select id="trQuarantine"><option value="No">No</option><option value="Yes">Yes</option></select></div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;"><button class="markbtn" type="submit" style="border-color:var(--green);color:#6FE0AC;">Save trolley</button><button class="clearbtn" type="button" id="trCancelBtn">Cancel</button><span style="font-size:11px;color:var(--text-faint);align-self:center;">QR ID uses the trolley ID. Print a QR label from your approved label system.</span></div>
-    </form>
+    <button class="clearbtn" id="trRefreshBtn" style="border-color:var(--amber);color:var(--amber);">↻ Refresh from Sheet</button>
+    <button class="clearbtn" id="trAddBtn" style="border-color:var(--green);color:#6FE0AC;">＋ Add in Trolley Master</button>
+    <button class="clearbtn" id="trClearAllBtn" style="border-color:var(--red);color:var(--red);">Open Sheet to Remove All</button>
+    <span id="trSyncStatus" role="status" style="font-size:11px;color:var(--text-faint);align-self:center;">Connecting to Trolley Master…</span>
   </div>
   <div class="table-panel">
     <div class="table-scroll"><table style="min-width:1450px;">
       <thead><tr><th>QR / Trolley ID</th><th>Name</th><th>Owner</th><th>Department</th><th>Location</th><th>Last Inspection</th><th>Next Due</th><th>Outcome</th><th>Status</th><th>Verifier</th><th>Corrective Action</th><th>Control</th></tr></thead>
       <tbody id="trTbody"></tbody>
     </table></div>
-    <div class="table-footer"><span id="trResultCount">0 trolleys</span><span style="font-size:11px;color:var(--text-faint);">Data is stored in this browser until a shared database is connected.</span></div>
+    <div class="table-footer"><span id="trResultCount">Connecting to Trolley Master…</span><span style="font-size:11px;color:var(--text-faint);">Edit records in Google Sheets. The dashboard refreshes every 30 seconds.</span></div>
   </div>
 </section>
 
@@ -1063,58 +1045,70 @@ let RECORDS = [{"Serial Number":"ESD MAT 01","Name":"PWB LOADING (U)","Owner":"T
 (function(){
   const STORE_KEY='nationgate_plant8_trolley_control_v1';
   const HISTORY_KEY='nationgate_plant8_trolley_history_v1';
-  const SEED_CLEANUP_KEY='nationgate_plant8_trolley_seed_cleanup_v1';
-  let trolleys=[]; let history=[]; let editingId=null;
+  const LIVE_MIGRATION_KEY='nationgate_plant8_trolley_sheet_migration_v1';
+  const SHEET_ID='18A-HcjFF4w2ad6__we-JuHBdQ1A58H2VJLLPNyyOQbg';
+  const MASTER_GID='1362015650';
+  const HISTORY_GID='574953015';
+  const DATA_ENDPOINT=location.protocol==='file:'?'https://esdverificationdashboardplant8.netlify.app/.netlify/functions/trolley-data':'/.netlify/functions/trolley-data';
+  let trolleys=[]; let history=[]; let sheetLoaded=false; let syncInFlight=false; let masterLastRow=2; let historyLastRow=2;
   const $=id=>document.getElementById(id);
   const today=()=>{const d=new Date();d.setHours(0,0,0,0);return d.toISOString().slice(0,10)};
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  function isEmbeddedTrolleyRecord(t){
-    if(!t||typeof t!=='object'||typeof RECORDS==='undefined')return false;
-    const source=RECORDS.find(r=>String(r['Serial Number']||'')===String(t.id||''));
-    return !!source&&(String(source.Type||'').toUpperCase().includes('SHELVING')||String(source['Serial Number']||'').toUpperCase().startsWith('TROLLEY'));
-  }
-  function load(){
+  function cleanLegacyBrowserRecords(){
     try{
-      const stored=localStorage.getItem(STORE_KEY);
-      trolleys=stored===null?[]:JSON.parse(stored);
-      if(!Array.isArray(trolleys))trolleys=[];
-      history=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]');
-      if(!Array.isArray(history))history=[];
-      if(localStorage.getItem(SEED_CLEANUP_KEY)!=='done'){
-        const removed=trolleys.filter(isEmbeddedTrolleyRecord);
-        if(removed.length){
-          const timestamp=new Date().toISOString();
-          removed.forEach(t=>history.unshift({timestamp,event:'Removed seeded trolley',trolleyId:t.id,name:t.name,location:t.location||'',checked:t.checked||'',due:t.due||'',outcome:t.outcome||'',status:status(t),verifier:t.verifier||'',correctiveAction:t.action||'',notes:'Removed because embedded workbook trolleys are not registered in Trolley Master'}));
-          trolleys=trolleys.filter(t=>!isEmbeddedTrolleyRecord(t));
-          save();
-        }
-        localStorage.setItem(SEED_CLEANUP_KEY,'done');
+      if(localStorage.getItem(LIVE_MIGRATION_KEY)==='done')return;
+      const previous=JSON.parse(localStorage.getItem(STORE_KEY)||'[]');
+      const localHistory=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]');
+      if(Array.isArray(previous)&&Array.isArray(localHistory)&&previous.length){
+        const timestamp=new Date().toISOString();
+        previous.forEach(t=>localHistory.unshift({timestamp,event:'Removed from browser storage',trolleyId:t.id||'',name:t.name||'',location:t.location||'',checked:t.checked||'',due:t.due||'',outcome:t.outcome||'',status:'Removed',verifier:t.verifier||'',correctiveAction:t.action||'',notes:'Trolley Master is now the source of truth'}));
+        localStorage.setItem(HISTORY_KEY,JSON.stringify(localHistory));
       }
-    }catch(e){trolleys=[];history=[]}
+      localStorage.setItem(STORE_KEY,'[]');
+      localStorage.setItem(LIVE_MIGRATION_KEY,'done');
+    }catch(e){}
   }
-  function save(){localStorage.setItem(STORE_KEY,JSON.stringify(trolleys));localStorage.setItem(HISTORY_KEY,JSON.stringify(history))}
+  function sheetUrl(gid,range){return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit?gid=${gid}${range?`&range=${encodeURIComponent(range)}`:''}`}
+  function openSheet(gid,range){window.open(sheetUrl(gid,range),'_blank','noopener')}
+  async function loadFromSheet(){
+    if(syncInFlight)return;
+    syncInFlight=true;
+    cleanLegacyBrowserRecords();
+    $('trSyncStatus').textContent='Refreshing from Trolley Master…';
+    try{
+      const response=await fetch(`${DATA_ENDPOINT}?refresh=${Date.now()}`,{cache:'no-store'});
+      if(!response.ok)throw new Error('Sheet request failed');
+      const data=await response.json();
+      if(!Array.isArray(data.trolleys)||!Array.isArray(data.history))throw new Error('Unexpected sheet response');
+      trolleys=data.trolleys;history=data.history;masterLastRow=data.masterLastRow||2;historyLastRow=data.historyLastRow||2;sheetLoaded=true;
+      $('trSyncStatus').textContent=`Live from Trolley Master · updated ${new Date(data.syncedAt).toLocaleTimeString()}`;
+      refresh();
+    }catch(e){
+      $('trSyncStatus').textContent=sheetLoaded?'Refresh failed · showing last sheet data':'Could not connect to Trolley Master · use Add in Trolley Master';
+      if(!sheetLoaded){['trKpiTotal','trKpiValid','trKpiDue','trKpiQuarantine'].forEach(id=>$(id).textContent='—');$('trTbody').innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text-faint);padding:24px;">Trolley Master is unavailable. Refresh or open the sheet.</td></tr>'; $('trResultCount').textContent='Trolley Master unavailable';}
+    }finally{syncInFlight=false}
+  }
   function status(t){if(t.quarantine==='Yes'||t.outcome==='Fail')return 'Quarantined';if(!t.due)return 'Due Soon';const n=Math.ceil((new Date(t.due+'T00:00:00')-new Date(today()+'T00:00:00'))/86400000);if(n<0)return 'Overdue';if(n<=30)return 'Due Soon';if(t.outcome!=='Pass')return 'Due Soon';return 'Valid'}
   function badge(st){const cls=st==='Valid'?'valid':(st==='Due Soon'?'soon':'expired');return `<span class="badge ${cls}">${esc(st)}</span>`}
   function refresh(){
+    if(!sheetLoaded)return;
     const counts={total:trolleys.length,valid:0,due:0,quarantine:0};
     trolleys.forEach(t=>{const st=status(t);if(st==='Valid')counts.valid++;if(st==='Due Soon'||st==='Overdue')counts.due++;if(st==='Quarantined')counts.quarantine++});
     $('trKpiTotal').textContent=counts.total;$('trKpiValid').textContent=counts.valid;$('trKpiDue').textContent=counts.due;$('trKpiQuarantine').textContent=counts.quarantine;
     const q=$('trSearch').value.trim().toLowerCase(),f=$('trStatusFilter').value;
     const rows=trolleys.filter(t=>(!q||[t.id,t.name,t.owner,t.dept,t.location].some(v=>String(v||'').toLowerCase().includes(q)))&&(f==='all'||status(t)===f));
-    $('trTbody').innerHTML=rows.length?rows.map(t=>{const st=status(t);return `<tr><td class="serial">${esc(t.id)}<br><span style="font-size:10px;color:var(--text-faint)">QR: ${esc(t.qr||t.id)}</span></td><td class="name">${esc(t.name)}</td><td>${esc(t.owner)}</td><td>${esc(t.dept)}</td><td>${esc(t.location)}</td><td>${esc(t.checked||'—')}</td><td>${esc(t.due||'—')}</td><td>${esc(t.outcome||'Not inspected')}</td><td>${badge(st)}</td><td>${esc(t.verifier)}</td><td style="max-width:260px;white-space:normal">${esc(t.action)}</td><td><div style="display:flex;gap:5px;flex-wrap:wrap"><button class="markbtn" data-edit="${esc(t.id)}">Edit</button><button class="markbtn" data-inspect="${esc(t.id)}">Inspect</button>${t.quarantine==='Yes'||t.outcome==='Fail'?`<button class="markbtn" data-release="${esc(t.id)}" style="border-color:var(--green);color:#6FE0AC">Release</button>`:''}<button class="markbtn" data-remove="${esc(t.id)}" style="border-color:var(--red);color:var(--red)">Remove</button></div></td></tr>`}).join(''):'<tr><td colspan="12" style="text-align:center;color:var(--text-faint);padding:24px;">No trolleys registered.</td></tr>';
-    $('trResultCount').textContent=`${rows.length} trolley(s) shown · ${trolleys.length} registered`;
+    $('trTbody').innerHTML=rows.length?rows.map(t=>{const st=status(t);return `<tr><td class="serial">${esc(t.id)}<br><span style="font-size:10px;color:var(--text-faint)">QR: ${esc(t.qr||t.id)}</span></td><td class="name">${esc(t.name)}</td><td>${esc(t.owner)}</td><td>${esc(t.dept)}</td><td>${esc(t.location)}</td><td>${esc(t.checked||'—')}</td><td>${esc(t.due||'—')}</td><td>${esc(t.outcome||'Not inspected')}</td><td>${badge(st)}</td><td>${esc(t.verifier)}</td><td style="max-width:260px;white-space:normal">${esc(t.action)}</td><td><div style="display:flex;gap:5px;flex-wrap:wrap"><button class="markbtn" data-edit="${t.sheetRow}">Edit in Sheet</button><button class="markbtn" data-inspect="${t.sheetRow}">Inspect</button><button class="markbtn" data-remove="${t.sheetRow}" style="border-color:var(--red);color:var(--red)">Remove in Sheet</button></div></td></tr>`}).join(''):'<tr><td colspan="12" style="text-align:center;color:var(--text-faint);padding:24px;">No trolleys registered in Trolley Master.</td></tr>';
+    $('trResultCount').textContent=`${rows.length} trolley(s) shown · ${trolleys.length} in Trolley Master`;
   }
-  function formOpen(t){editingId=t?t.id:null;$('trFormTitle').firstChild.textContent=t?'Edit Mobile Trolley ':'Register Mobile Trolley ';const map={trId:'id',trName:'name',trOwner:'owner',trDept:'dept',trLocation:'location',trFrequency:'frequency',trChecked:'checked',trDue:'due',trOutcome:'outcome',trVerifier:'verifier',trAction:'action',trQuarantine:'quarantine'};Object.entries(map).forEach(([id,k])=>$(id).value=t?(t[k]||''):({trFrequency:'Quarterly',trOutcome:'Not inspected',trQuarantine:'No'}[id]||''));$('trId').readOnly=!!t;$('trFormWrap').style.display='block';$('trFormWrap').scrollIntoView({behavior:'smooth',block:'center'});}
-  function closeForm(){$('trFormWrap').style.display='none';$('trForm').reset();$('trId').readOnly=false;editingId=null}
-  function recordHistory(t,event,notes){history.unshift({timestamp:new Date().toISOString(),event,trolleyId:t.id,name:t.name,location:t.location,checked:t.checked||'',due:t.due||'',outcome:t.outcome||'',status:status(t),verifier:t.verifier||'',correctiveAction:t.action||'',notes:notes||''});save()}
-  $('trAddBtn').addEventListener('click',()=>formOpen(null));$('trCancelBtn').addEventListener('click',closeForm);$('trSearch').addEventListener('input',refresh);$('trSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const code=e.target.value.trim().toLowerCase();const t=trolleys.find(x=>[x.id,x.qr].some(v=>String(v||'').toLowerCase()===code));if(t){formOpen(t);$('trChecked').value=today();$('trOutcome').value='Pass';$('trQuarantine').value='No';$('trAction').value='';if(window.showToast)showToast('QR matched '+t.id+' — complete inspection and save','success')}else if(window.showToast)showToast('No trolley found for scanned QR / ID','warning')}});$('trStatusFilter').addEventListener('change',refresh);
-  $('trForm').addEventListener('submit',e=>{e.preventDefault();const id=$('trId').value.trim();if(!id)return;if(!editingId&&trolleys.some(t=>t.id.toLowerCase()===id.toLowerCase())){alert('That trolley ID already exists. Use Edit to update it.');return}const prev=editingId?trolleys.find(t=>t.id===editingId):null;const t={id,qr:id,name:$('trName').value.trim(),owner:$('trOwner').value.trim(),dept:$('trDept').value.trim(),location:$('trLocation').value.trim(),frequency:$('trFrequency').value,checked:$('trChecked').value,due:$('trDue').value,outcome:$('trOutcome').value,verifier:$('trVerifier').value.trim(),action:$('trAction').value.trim(),quarantine:$('trQuarantine').value,createdAt:prev?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};if(t.outcome==='Fail')t.quarantine='Yes';if(prev){Object.assign(prev,t);recordHistory(prev,'Updated','Trolley record edited')}else{trolleys.push(t);recordHistory(t,'Registered','New trolley registered')}save();closeForm();refresh();if(window.showToast)showToast('Trolley record saved on this browser','success')});
-  $('trTbody').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const id=b.dataset.edit||b.dataset.inspect||b.dataset.release||b.dataset.remove;const t=trolleys.find(x=>x.id===id);if(!t)return;if(b.dataset.edit){formOpen(t);return}if(b.dataset.inspect){formOpen(t);$('trChecked').value=today();$('trOutcome').value='Pass';$('trQuarantine').value='No';$('trAction').value='';return}if(b.dataset.remove){if(!window.confirm(`Remove trolley ${t.id} from this browser?`))return;history.unshift({timestamp:new Date().toISOString(),event:'Removed',trolleyId:t.id,name:t.name,location:t.location||'',checked:t.checked||'',due:t.due||'',outcome:t.outcome||'',status:status(t),verifier:t.verifier||'',correctiveAction:t.action||'',notes:'Removed from trolley control list'});trolleys=trolleys.filter(x=>x.id!==id);save();refresh();if(window.showToast)showToast('Trolley removed from this browser','success');return}if(b.dataset.release){const verifier=prompt('Enter authorized release verifier name:');if(!verifier||!verifier.trim())return;const note=prompt('Corrective action / release confirmation reference:');if(note===null)return;t.quarantine='No';t.outcome='Pass';t.verifier=verifier.trim();t.action=note.trim();t.checked=t.checked||today();if(!t.due){const d=new Date((t.checked||today())+'T00:00:00');d.setMonth(d.getMonth()+3);t.due=d.toISOString().slice(0,10)}t.updatedAt=new Date().toISOString();recordHistory(t,'Authorized Release',note.trim());save();refresh();if(window.showToast)showToast('Release recorded locally; follow site approval procedure','success')}});
-  $('trClearAllBtn').addEventListener('click',()=>{if(!trolleys.length)return;if(!window.confirm(`Remove all ${trolleys.length} trolley records from this browser? Inspection history will be kept.`))return;const removed=trolleys.slice(),timestamp=new Date().toISOString();removed.forEach(t=>history.unshift({timestamp,event:'Removed',trolleyId:t.id,name:t.name,location:t.location||'',checked:t.checked||'',due:t.due||'',outcome:t.outcome||'',status:status(t),verifier:t.verifier||'',correctiveAction:t.action||'',notes:'Removed all trolley records from this browser'}));trolleys=[];if(editingId)closeForm();save();refresh();if(window.showToast)showToast('All trolley records removed from this browser','success')});
+  $('trAddBtn').addEventListener('click',()=>{openSheet(MASTER_GID,`A${masterLastRow}`);if(window.showToast)showToast('Add the trolley in Trolley Master. The dashboard refreshes automatically.','success')});
+  $('trRefreshBtn').addEventListener('click',loadFromSheet);
+  $('trClearAllBtn').addEventListener('click',()=>{const last=Math.max(2,masterLastRow);openSheet(MASTER_GID,`A2:Q${last}`);if(window.showToast)showToast('Delete the selected trolley rows in Trolley Master. The dashboard refreshes automatically.','warning')});
+  $('trSearch').addEventListener('input',refresh);$('trSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const code=e.target.value.trim().toLowerCase();const t=trolleys.find(x=>[x.id,x.qr].some(v=>String(v||'').toLowerCase()===code));if(t){openSheet(HISTORY_GID,`B${historyLastRow}`);if(window.showToast)showToast(`Record the inspection for ${t.id} in Trolley Inspection History.`,'success')}else if(window.showToast)showToast('No trolley found for scanned QR / ID','warning')}});$('trStatusFilter').addEventListener('change',refresh);
+  $('trTbody').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const row=Number(b.dataset.edit||b.dataset.inspect||b.dataset.remove);if(!row)return;if(b.dataset.edit){openSheet(MASTER_GID,`A${row}:Q${row}`);if(window.showToast)showToast('Edit this row in Trolley Master. The dashboard refreshes automatically.','success');return}if(b.dataset.inspect){openSheet(HISTORY_GID,`B${historyLastRow}`);if(window.showToast)showToast('Add the inspection in Trolley Inspection History. The dashboard refreshes automatically.','success');return}if(b.dataset.remove){openSheet(MASTER_GID,`A${row}:Q${row}`);if(window.showToast)showToast('Delete this trolley row in Trolley Master. The dashboard refreshes automatically.','warning')}});
   $('trExportBtn').addEventListener('click',()=>{if(!window.XLSX){alert('Excel export library is not available.');return}const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(window.getTrolleyExportRows()),'Trolley Control');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(window.getTrolleyHistoryRows()),'Inspection History');XLSX.writeFile(wb,`Plant8_Trolley_Control_${today()}.xlsx`)});
-  window.getTrolleyExportRows=()=>trolleys.map(t=>({'Trolley ID':t.id,'QR ID':t.qr||t.id,'Trolley Name':t.name,'Owner / PIC':t.owner,'Department':t.dept,'Current Location':t.location,'Inspection Frequency':t.frequency,'Last Inspection Date':t.checked,'Next Due Date':t.due,'Inspection Outcome':t.outcome,'Compliance Status':status(t),'Verifier':t.verifier,'Corrective Action':t.action,'Quarantine':t.quarantine,'Created At':t.createdAt,'Updated At':t.updatedAt}));
+  window.getTrolleyExportRows=()=>trolleys.map(t=>({'Trolley ID':t.id,'QR ID':t.qr||t.id,'Trolley Name':t.name,'Owner / PIC':t.owner,'Department':t.dept,'Current Location':t.location,'Inspection Frequency':t.frequency,'Last Inspection Date':t.checked,'Next Due Date':t.due,'Inspection Outcome':t.outcome,'Compliance Status':status(t),'Verifier':t.verifier,'Corrective Action':t.action,'Quarantine':t.quarantine,'Updated At':t.updatedAt}));
   window.getTrolleyHistoryRows=()=>history.map(h=>({'Timestamp':h.timestamp,'Event':h.event,'Trolley ID':h.trolleyId,'Trolley Name':h.name,'Location':h.location,'Last Inspection Date':h.checked,'Next Due Date':h.due,'Outcome':h.outcome,'Status':h.status,'Verifier':h.verifier,'Corrective Action':h.correctiveAction,'Notes':h.notes}));
-  load();refresh();
+  refresh();loadFromSheet();setInterval(loadFromSheet,30000);window.addEventListener('focus',loadFromSheet);
 })();
 </script>
 
